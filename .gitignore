@@ -1,0 +1,6 @@
+logs/*
+logs
+*.zip
+*.mp4
+.idea
+.idea/*
