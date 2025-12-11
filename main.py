@@ -107,6 +107,7 @@ async def download(url: str, session: aiohttp.ClientSession, filename: str):
                 state_manager = DownloadStateManager(url, session, total_size=length, download_filename=filename)
                 await state_manager.initialize()
 
+
                 for i in range(0, CHUNK_DIV):
                     start = c * i + (1 if i != 0 else 0)
                     end = (c * (i + 1)) + (r if CHUNK_DIV - 1 == i else 0)
