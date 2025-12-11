@@ -4,12 +4,9 @@ import pickle
 import aiohttp
 import asyncio
 import aiofiles
-from aiofiles import threadpool
 
 from dataclasses import dataclass, asdict, field
 from typing import Any
-
-from aiofiles.threadpool.text import AsyncTextIOWrapper
 
 
 @dataclass
@@ -54,9 +51,6 @@ class DownloadStateManager:
         self._lock = asyncio.Lock()
         self._state: DownloadState = DownloadState(self.url, self.download_filename, self.total_size)
         self._state.data = {}
-        with open(self.state_filename, 'xb'):
-            ...
-        self.file_obj: AsyncTextIOWrapper = threadpool._open(self.state_filename, 'r+b')
 
     async def state(self) -> DownloadState:
         async with self._lock:
@@ -65,31 +59,31 @@ class DownloadStateManager:
     async def set_state(self, index: int, task_state: TaskState) -> None:
         async with self._lock:
             self._state.data[index] = task_state
-            await self.file_obj.write(DownloadStateManager.picklize(self._state))
+
+            async with aiofiles.open(self.state_filename, "wb") as f:
+                await f.write(DownloadStateManager.picklize(self._state))
 
     async def get_offset(self, index: int) -> int | None:
         async with self._lock:
             if not os.path.exists(self.state_filename):
                 return None
 
-            if self._state.data.get(index) is not None:
-                return self._state.data[index].offset
+            async with aiofiles.open(self.state_filename, "rb") as f:
+                if self._state.data.get(index) is not None:
+                    return self._state.data[index].offset
 
-            return None
+                return None
 
     async def initialize(self):
         async with self._lock:
             if os.path.exists(self.state_filename):
                 try:
-                    self.file_obj = await self.file_obj
-
-                    self._state = pickle.loads(await self.file_obj.read())
-                except (pickle.PickleError, EOFError):
+                    async with aiofiles.open(self.state_filename, 'rb') as f:
+                        self._state = pickle.loads(await f.read())
+                except pickle.PickleError:
                     ...
 
-
-    async def shutdown(self):
-        await self.file_obj.close()
+    def shutdown(self):
         if os.path.exists(self.state_filename):
             os.remove(self.state_filename)
         del self

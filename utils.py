@@ -30,7 +30,7 @@ class Error(Exception):
 
     def __str__(self):
         log = f"[{self.timestamp}] {self.error_type}: {self.message}"
-        return log
+        return
 
 
 async def detect_filename(url: str, session: aiohttp.ClientSession) -> str:

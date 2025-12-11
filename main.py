@@ -6,12 +6,13 @@ from pathlib import Path
 
 import aiohttp
 import aiofiles
+import aiofiles.os as aio_os
 
-from utils import Error, ErrorType, detect_filename, make_unique_filename
+from utils import Error, ErrorType, detect_filename, guess_filename_from_bytes, make_unique_filename
 from logger import error, debug
 from state import DownloadStateManager, TaskState
 
-CHUNK_DIV = 8
+CHUNK_DIV = 5
 CHUNK_SIZE = 1024 * 1024
 FILE_PATH = r"D:\!Film\21b57e27b2e068307260e3ef038e27d340136412-720p.mp4"
 
@@ -25,33 +26,37 @@ async def check_url(url: str, session: aiohttp.ClientSession) -> Error | tuple:
         raise Error(err, type(err))
     headers = r.headers
     length = headers.get('Content-Length')
-    r.close()
     if not (ar := headers.get('Accept-Ranges')) or ar != 'bytes' or not length:
         raise Error("Not Sopported Url", ErrorType.UnSupportedURL)
     
     return divmod(float(length), CHUNK_DIV), float(length)
 
-async def write(index: int, file_obj, b: bytes,
+async def write(index: int, filename: str, b: bytes,
                 state_manager: DownloadStateManager, start: int, end: int,
                 offset: int, total_size: int):
+    global write_calls
+    async with file_write_lock:
+        write_calls += 1
+        if not os.path.exists(filename):
+            async with aiofiles.open(filename, 'wb') as f:
+                await f.seek(total_size - 1)
+                await f.write(b'\0')
+    
+    async with file_write_lock, aiofiles.open(filename, 'r+b') as f:
+        await f.seek(offset)
+        await f.write(b)
+        await f.flush()
 
-    try:
-        await file_obj.seek(offset)
-    except Exception as err:
-        raise Error(f"{index = } {err}", Exception)
-    await file_obj.write(b)
-    # await f.flush()
-
-    await state_manager.set_state(index, TaskState(
-        index=index,
-        start=start,
-        end=end,
-        offset=offset,
-    ))
+        await state_manager.set_state(index, TaskState(
+            index=index,
+            start=start,
+            end=end,
+            offset=offset,
+        ))
 
 
 async def download_chunk(index: int, state_manager: DownloadStateManager, url: str,
-                         session: aiohttp.ClientSession, file_obj,
+                         session: aiohttp.ClientSession, filename: str,
                          total_size: int, start: int, end: int | None = None, offset: int | None = None):
     headers = {}
 
@@ -78,13 +83,13 @@ async def download_chunk(index: int, state_manager: DownloadStateManager, url: s
         async for ch in r.content.iter_chunked(CHUNK_SIZE):
             buffer.extend(ch)
             if len(buffer) >= CHUNK_SIZE:
-                await write(index, file_obj, buffer, state_manager, start, end, offset, total_size)
+                await write(index, filename, buffer, state_manager, start, end, offset, total_size)
 
                 offset += len(buffer)
                 buffer.clear()
         
         if buffer:
-            await write(index, file_obj, buffer, state_manager, start, end, offset, total_size)
+            await write(index, filename, buffer, state_manager, start, end, offset, total_size)
 
 
 async def download(url: str, session: aiohttp.ClientSession, filename: str):
@@ -97,35 +102,27 @@ async def download(url: str, session: aiohttp.ClientSession, filename: str):
     filename = make_unique_filename(filename)
     debug(f"end make_unique_filename(filename) {asyncio.get_event_loop().time() - st}")
 
-    if not os.path.exists(filename):
-        async with aiofiles.open(filename, 'wb') as f:
-            await f.seek(int(length) - 1)
-            await f.write(b'\0')
-    try:
-        async with aiofiles.open(filename, 'r+b') as f:
-            async with asyncio.TaskGroup() as tg:
-                state_manager = DownloadStateManager(url, session, total_size=length, download_filename=filename)
-                await state_manager.initialize()
+    async with asyncio.TaskGroup() as tg:
+        state_manager = DownloadStateManager(url, session, total_size=length, download_filename=filename)
+        await state_manager.initialize()
 
+        for i in range(0, CHUNK_DIV):
+            start = c * i + (1 if i != 0 else 0)
+            end = (c * (i + 1)) + (r if CHUNK_DIV - 1 == i else 0)
 
-                for i in range(0, CHUNK_DIV):
-                    start = c * i + (1 if i != 0 else 0)
-                    end = (c * (i + 1)) + (r if CHUNK_DIV - 1 == i else 0)
+            tg.create_task(download_chunk(
+                i,
+                state_manager,
+                url,
+                session,
+                filename,
+                total_size=int(length),
+                start=int(start),
+                end=int(end) if end is not None else end,
+                offset=await state_manager.get_offset(i)
+                ))
 
-                    tg.create_task(download_chunk(
-                        i,
-                        state_manager,
-                        url,
-                        session,
-                        f,
-                        total_size=int(length),
-                        start=int(start),
-                        end=int(end) if end is not None else end,
-                        offset=await state_manager.get_offset(i)
-                        ))
-    finally:
-        await state_manager.shutdown()
-
+    state_manager.shutdown()
     # if filename == "SOME_FILE_NAME_THAT_WILL_CHANGE":
     #     async with aiofiles.open(filename, 'rb') as f:
     #         new_filename = guess_filename_from_bytes(filename, await f.read(4096))
@@ -135,6 +132,7 @@ async def download(url: str, session: aiohttp.ClientSession, filename: str):
     #         await aio_os.rename(filename, new_filename, loop=asyncio.get_event_loop())
     #         filename = new_filename
 
+    make_unique_filename(filename)
     end_t = asyncio.get_event_loop().time()
     print(f'File {filename} downloaded in {end_t - start_t} seconds')
 
