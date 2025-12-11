@@ -1,5 +1,7 @@
 import os
 from typing import Optional
+from uuid import uuid4
+
 import filetype
 
 import aiohttp
@@ -105,7 +107,7 @@ def guess_filename_from_bytes(
         if original_name:
             return original_name
         # وگرنه یه اسم فیک می‌سازیم بدون اکستنشن
-        return filename
+        return str(uuid4())
 
     guessed_ext = kind.extension  # مثلا 'pdf', 'jpg', ...
 
