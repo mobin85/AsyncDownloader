@@ -7,3 +7,5 @@ logs
 .idea/*
 __pycache__
 __pycache__/*
+GoRewrite
+GoRewrite/*

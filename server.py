@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 
 app = FastAPI()
 
-FILE_PATH = r"D:\!Film\21b57e27b2e068307260e3ef038e27d340136412-720p.mp4"
+FILE_PATH = r"D:\Win10_22H2_English_x64v1.iso"
 CHUNK_SIZE = 1024 * 1024   # 1MB برای استریم
 
 

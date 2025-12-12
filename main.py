@@ -1,20 +1,23 @@
-import hashlib
 import os
 
 import asyncio
-from pathlib import Path
 
 import aiohttp
 import aiofiles
-import aiofiles.os as aio_os
+from curl_cffi.requests import AsyncSession
 
 from utils import Error, ErrorType, detect_filename, guess_filename_from_bytes, make_unique_filename
 from logger import error, debug
 from state import DownloadStateManager, TaskState
 
-CHUNK_DIV = 5
-CHUNK_SIZE = 1024 * 1024
-FILE_PATH = r"D:\!Film\21b57e27b2e068307260e3ef038e27d340136412-720p.mp4"
+CHUNK_DIV = 8
+CHUNK_SIZE = 1024 * 1024 * 8
+FILE_PATH = r"D:\Win10_22H2_English_x64v1.iso"
+DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
+    total=None,        # no "whole request must finish in X seconds"
+    sock_connect=30,   # connect timeout
+    sock_read=120,     # allow 2 minutes with no bytes before timing out
+)
 
 file_write_lock, write_calls = asyncio.Lock(), 0
 
@@ -24,6 +27,8 @@ async def check_url(url: str, session: aiohttp.ClientSession) -> Error | tuple:
         r = await session.get(url)
     except Exception as err:
         raise Error(err, type(err))
+
+    r.close()
     headers = r.headers
     length = headers.get('Content-Length')
     if not (ar := headers.get('Accept-Ranges')) or ar != 'bytes' or not length:
@@ -73,7 +78,7 @@ async def download_chunk(index: int, state_manager: DownloadStateManager, url: s
 
     print(f'download chunk {total_size = }, {start = }, {end = }, {offset = }')
 
-    async with session.get(url, headers=headers) as r:
+    async with session.get(url, headers=headers, timeout=DOWNLOAD_TIMEOUT) as r:
         if r.status not in (200, 206):
             raise Error(f'NOT VALID RESPONSE FROM SERVER {r.status}', ErrorType.NotValidStatusResponse)
 
@@ -99,6 +104,7 @@ async def download(url: str, session: aiohttp.ClientSession, filename: str):
     print(f"{c = }, {r = }, {length = }")
     debug(f'start make_unique_filename(filename)')
     st = asyncio.get_event_loop().time()
+    print(f"{filename = }")
     filename = make_unique_filename(filename)
     debug(f"end make_unique_filename(filename) {asyncio.get_event_loop().time() - st}")
 
@@ -143,8 +149,8 @@ async def main():
     async with aiohttp.ClientSession() as c, asyncio.TaskGroup() as tg:
 
         tg.create_task(download(url, c, await detect_filename(url, c)))
-        await asyncio.sleep(1)
-        tg.create_task(download(url, c, await detect_filename(url, c)))
+        # await asyncio.sleep(1)
+        # tg.create_task(download(url, c, await detect_filename(url, c)))
 
 if __name__ == '__main__':
     asyncio.run(main())

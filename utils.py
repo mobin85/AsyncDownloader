@@ -133,9 +133,9 @@ async def detect_filename_download(url: str, session: aiohttp.ClientSession) -> 
 
         buffer = bytearray()
 
-        async for ch in r.content.iter_chunked(4096):
+        async for ch in r.content.iter_chunked(4096 * 6):
             buffer.extend(ch)
-            if len(buffer) >= 4096:
+            if len(buffer) >= 4096 * 6:
                 break
 
         return guess_filename_from_bytes('file', buffer)
@@ -147,7 +147,11 @@ def make_unique_filename(filename: str) -> str:
     """
 
     # Split filename into name and extension
-    base, ext = filename.split('.')
+    try:
+        base, ext = filename.split('.')
+    except ValueError:
+        base = filename
+        ext = ""
 
     # Regex to detect if filename already ends with "(n)"
     pattern = r"^(.*)\((\d+)\)$"
@@ -170,4 +174,4 @@ def make_unique_filename(filename: str) -> str:
             return candidate  # unique name found
 
         counter += 1
-        candidate = f"{pure_base} ({counter}).{ext}"
+        candidate = f"{pure_base} ({counter})" + (f".{ext}" if ext else "")
